@@ -1,0 +1,4 @@
+_codeql_detected_source_root
+codeql_database
+src/*.o
+program

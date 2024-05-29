@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import subprocess
+
+def process_params(argv):
+    source_code = []
+    i = 1
+    while i < len(argv):
+        if os.path.exists(argv[i]):
+            source_code.append(os.path.abspath(argv[i]))
+        i += 1
+    return source_code
+
+source_code = process_params(sys.argv)
+filter_lists = None
+if "FILTER_FILE" in os.environ:
+    filter_lists = [os.path.abspath(p) for p in open(os.environ['FILTER_FILE']).read().splitlines()] 
+
+if filter_lists is None or any(f in source_code for f in filter_lists):
+    script_dir = os.path.dirname(sys.argv[0])
+    extractor_path = os.path.join(script_dir, "extractor")
+    subprocess.run([extractor_path] + sys.argv[1:])
+
+print(source_code)
