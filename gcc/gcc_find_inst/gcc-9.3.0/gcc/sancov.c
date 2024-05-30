@@ -47,6 +47,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "asan.h"
 #include "unistd.h"
 #include <assert.h>
+#include <dirent.h>
+#include <sys/types.h>
 
 
 namespace {
@@ -101,9 +103,49 @@ struct prop_list {
   struct st *post;
 };
 
+struct distance_list{
+  struct distance_list * next;
+  char * filename;
+  struct func_list * funcs;
+
+};
+
+struct func_list{
+  struct func_list *next;
+  char * funcname;
+  int dis[10000];
+};
+
 struct cond *cond_list = NULL;
 struct prop_list *p_list = NULL;
+struct distance_list* d_list=NULL;
 static unsigned prop_idx = 1;
+
+
+
+//查找对应的file
+static struct distance_list *lookup_file(const char *filename) {
+  struct distance_list *cur = d_list;
+  while (cur!=NULL) {
+    if (!strcmp(cur->filename, filename)) {
+      return cur;
+    }
+    cur = cur->next;
+  }
+  return cur;
+}
+
+//查找对应func的BB距离列表
+static struct func_list *lookup_distance(struct func_list *funcs,const char *funcname) {
+  struct func_list *cur = funcs;
+  while (cur!=NULL) {
+    if (!strcmp(cur->funcname,funcname)) {
+      return cur;
+    }
+    cur = cur->next;
+  }
+  return cur;
+}
 
 static struct cond *lookup_cond(struct cond *c, const char *name, int field) {
   struct cond *cond = c ? c : cond_list;
@@ -341,6 +383,98 @@ instrument_switch (gimple_stmt_iterator *gsi, gimple *stmt, function *fun)
   gimple_seq_set_location (seq, loc);
   gsi_insert_seq_before (gsi, seq, GSI_SAME_STMT);
 }
+void replace_char(char * filename)
+{
+  int len=strlen(filename);
+  int i=0;
+  for(i=0;i<len-5;i++)
+  {
+    if(filename[i]=='-')
+      filename[i]='/';
+  }
+  filename[i]='\0';
+  return;
+}
+void load_distance()
+{
+  //加载distance信息
+  char *dist_dir = getenv("DIST_DIR");
+  if(dist_dir)
+  {
+    struct dirent *entry;
+    DIR *dp = opendir(dist_dir);  
+    if(dp==NULL)
+    {
+      printf("Cannot open $DIST_DIR");
+      assert (false);
+    }  
+    //遍历dist_dir下的所有文件
+    char filename[MAX_FILE_NAME] = {};
+    char funcname[MAX_FILE_NAME] = {};
+    char pathname[800] = {};
+    int blockIdx;
+    int distance;
+    while ((entry = readdir(dp)) != NULL) {
+        //获取filename
+        strcpy(filename,entry->d_name);
+        sprintf(pathname,"%s/%s",dist_dir,filename);
+
+        // Skip "." and ".." entries
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+        FILE * fp=fopen(pathname,"r");
+        if(fp==NULL)
+        {
+        printf("File not exist\n");
+        assert (false);
+        }  
+        //对filename做处理，将文件名中的-替换为/,同时去掉.dist后缀
+        replace_char(filename);
+        //查看file是否已保存在distance_list中
+        struct distance_list * dist=lookup_file(filename);
+        //printf("find dist %s\n",dist->filename);
+        if(!dist)
+        {
+          
+          dist= (struct distance_list *)xmalloc(sizeof(*dist));
+          dist->filename = xstrdup(filename);
+          dist->funcs = NULL;
+          dist->next=d_list;
+          d_list=dist;
+        }
+        while (1)
+        {
+          fscanf(fp, "%s %d %d\n", funcname, &blockIdx, &distance);
+          if (strlen(funcname) == 0)
+            break;
+          //查看func是否已保存
+          struct func_list*func=lookup_distance(dist->funcs,funcname);
+          if(!func){
+            //如果函数
+            struct func_list *f=(struct func_list *)xmalloc(sizeof(*f));
+            f->funcname = xstrdup(funcname);
+            //将空白区间的距离变为-1
+            f->dis[blockIdx]=distance;
+            f->next=dist->funcs;
+            dist->funcs=f;
+          
+
+          }else{
+            func->dis[blockIdx]=distance;
+          }
+
+
+          memset(funcname, 0, sizeof(func));
+
+        }
+        fclose(fp);
+        memset(filename,0,sizeof(filename));
+        memset(pathname,0,sizeof(pathname));
+    }
+
+    closedir(dp);
+  }
+}
 
 void init_structs()
 {
@@ -558,21 +692,77 @@ unsigned
 sancov_pass (function *fun)
 {
   const char* funcname = "unknown";
+  const char* filename = "unknown";
   tree fndecl = cfun->decl;
   if (DECL_NAME(fndecl)) {
     funcname = IDENTIFIER_POINTER(DECL_NAME(fndecl));
+    filename = DECL_SOURCE_FILE(fndecl);
   }
   initialize_sanitizer_builtins ();
   // get output file name from env
   char *output_file = getenv("OUTPUT_FILE");
   char cwd[256];
   /* Insert callback into beginning of every BB. */
+    FILE *fp = fopen(output_file, "a");
+  if (fp == NULL) {
+    fprintf(stderr, "Cannot open %s\n", output_file);
+    assert(false);
+  }
+  fprintf(fp, "DISTANCE:%s %s\n", filename, funcname);
+      struct distance_list *d=d_list;
+
+    while(d)
+    {
+        struct func_list *f=d->funcs;
+        printf("filename %s",d->filename);
+        while(f)
+        {
+            fprintf(fp,"record:%s %s\n",d->filename,f->funcname);
+            f=f->next;
+        }
+        d=d->next;
+    }
+  fclose(fp);
   if (flag_sanitize_coverage & SANITIZE_COV_TRACE_PC)
     {
       basic_block bb;
       tree raw_fndecl = builtin_decl_implicit (BUILT_IN_SANITIZER_COV_TRACE_PC);
       tree obj_fndecl = builtin_decl_implicit (BUILT_IN_SANITIZER_OBJ_COV_TRACE_PC);
       tree fndecl;
+     
+      //插入distance相关逻辑
+      struct distance_list *dist=lookup_file(filename);
+      if(dist!=NULL)
+      {
+        struct func_list *func=lookup_distance(dist->funcs,funcname);
+        int blockIdx=0;
+        FOR_EACH_BB_FN (bb,fun)
+        {
+          //如果BB距离不存在，跳过
+          if(func->dis[blockIdx]==-1)
+            continue;
+          gimple_stmt_iterator gsi = gsi_start_nondebug_after_labels_bb (bb);
+          if (gsi_end_p (gsi))
+            continue;
+          gimple *stmt = gsi_stmt (gsi);
+          FILE *fp = fopen(output_file, "a");
+          if (fp == NULL) {
+            fprintf(stderr, "Cannot open %s\n", output_file);
+            assert(false);
+          }
+          fprintf(fp, "DISTANCE:%s/%s:%d:%d\n", filename, funcname, blockIdx,func->dis[blockIdx]);
+          fclose(fp);
+          // //声明
+          // tree fndecl_dist = builtin_decl_implicit(BUILT_IN_SANITIZER_DIST_TRACE);
+          // //创建调用，声明，变量数量，变量值
+          // gimple *gcall_dist = gimple_build_call(fndecl_dist, 1, func->dis[blockIdx]);
+          // gimple_set_location (gcall_dist, gimple_location (stmt));
+          // gsi_insert_before (&gsi, gcall_dist, GSI_SAME_STMT);
+          blockIdx++;
+        }
+      }
+
+
       FOR_EACH_BB_FN (bb, fun)
 	{
 	  gimple_stmt_iterator gsi = gsi_start_nondebug_after_labels_bb (bb);
@@ -611,17 +801,17 @@ sancov_pass (function *fun)
             break;
           }
           case VAL_INST: {
-            /*
+          
             unsigned idx = (unsigned)cb.data;
-            // build call for val feedback
-            tree fndecl_val_inst = builtin_decl_implicit(BUILT_IN_SANITIZER_COV_TRACE_INT8);
-            tree id_tree = build_int_cstu(unsigned_type_node, idx);
-            gimple *gcall_val = gimple_build_call(fndecl_val_inst, 2, id_tree, field_tree);
-            gcc_log("building feddback for val feedback\n");
-            gimple_set_location (gcall_val, gimple_location (stmt_));
-            gsi_insert_before (&gsi_, gcall_val, GSI_SAME_STMT);
-            break;
-            */
+            // // build call for val feedback
+            // tree fndecl_val_inst = builtin_decl_implicit(BUILT_IN_SANITIZER_COV_TRACE_INT8);
+            // tree id_tree = build_int_cstu(unsigned_type_node, idx);
+            // gimple *gcall_val = gimple_build_call(fndecl_val_inst, 2, id_tree, field_tree);
+            // gcc_log("building feedback for val feedback\n");
+            // gimple_set_location (gcall_val, gimple_location (stmt_));
+            // gsi_insert_before (&gsi_, gcall_val, GSI_SAME_STMT);
+            // break;
+            
             // get current line number, file name, and save it to a txt file
             // line number:
             int lineno = gimple_lineno(stmt_);
@@ -642,7 +832,7 @@ sancov_pass (function *fun)
           }
           case PROP_INST: {
             // unsigned res = (unsigned)cb.data;
-            /*
+            
             unsigned idx = (unsigned)cb.data>>8;
             enum built_in_function fncode = BUILT_IN_SANITIZER_PRE_TRACE;
             if ((unsigned)cb.data & 0xff == 1) {
@@ -652,14 +842,14 @@ sancov_pass (function *fun)
               fncode = BUILT_IN_SANITIZER_POST_TRACE;
             }
 
-            gcc_log("inserting prop inst\n");
-            tree fndecl_trace = builtin_decl_implicit(fncode);
-            tree id_tree = build_int_cstu(long_long_unsigned_type_node, idx);
-            gimple *gcall = gimple_build_call(fndecl_trace, 1, id_tree);
-            gimple_set_location (gcall, gimple_location (stmt));
-            gsi_insert_before (&gsi, gcall, GSI_SAME_STMT);
-            gcc_log("building feedback for prop inst\n");
-            break;*/
+            // gcc_log("inserting prop inst\n");
+            // tree fndecl_trace = builtin_decl_implicit(fncode);
+            // tree id_tree = build_int_cstu(long_long_unsigned_type_node, idx);
+            // gimple *gcall = gimple_build_call(fndecl_trace, 1, id_tree);
+            // gimple_set_location (gcall, gimple_location (stmt));
+            // gsi_insert_before (&gsi, gcall, GSI_SAME_STMT);
+            // gcc_log("building feedback for prop inst\n");
+            // break;
             int lineno = gimple_lineno(stmt_);
             const char *filename = gimple_filename(stmt_);
             memset(cwd, 0, sizeof(cwd));
@@ -684,14 +874,14 @@ sancov_pass (function *fun)
         // enable_point(id, mask);
         // id is the id, where mask is the size of map
         gcc_log("building feedback for enable point\n");
-        /*
-        tree fndecl_enable = builtin_decl_implicit(BUILT_IN_SANITIZER_ENABLE_TRACE);
-        tree id_tree = build_int_cstu(unsigned_type_node, idx);
-        tree mask_tree = build_int_cstu(unsigned_type_node, prop_idx);
-        gimple *gcall_enable = gimple_build_call(fndecl_enable, 2, id_tree, mask_tree);
+        
+        // tree fndecl_enable = builtin_decl_implicit(BUILT_IN_SANITIZER_ENABLE_TRACE);
+        // tree id_tree = build_int_cstu(unsigned_type_node, idx);
+        // tree mask_tree = build_int_cstu(unsigned_type_node, prop_idx);
+        // gimple *gcall_enable = gimple_build_call(fndecl_enable, 2, id_tree, mask_tree);
         // gimple_set_location (gcall_enable, gimple_location (stmt));
-        gsi_insert_before (&gsi, gcall_enable, GSI_SAME_STMT);
-        */
+        // gsi_insert_before (&gsi, gcall_enable, GSI_SAME_STMT);
+        
        int lineno = gimple_lineno(stmt_);
         const char *filename = gimple_filename(stmt_);
         memset(cwd, 0, sizeof(cwd));
@@ -782,11 +972,13 @@ template <bool O0> class pass_sancov : public gimple_opt_pass
 public:
   pass_sancov (gcc::context *ctxt) : gimple_opt_pass (data, ctxt) {
     init_structs();
+    load_distance();
   }
 
   static const pass_data data;
   struct st *cond_list = NULL;
   struct prop_list *p_list = NULL;
+  struct distance_list *d_list = NULL;
 
   opt_pass *
   clone ()
