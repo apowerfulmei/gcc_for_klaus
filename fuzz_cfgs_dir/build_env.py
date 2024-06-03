@@ -14,7 +14,7 @@ fuzzer_dir = "/klaus_fuzzer"
 fuzzer_bin = fuzzer_dir + "/bin/syz-manager"
 fuzzer_db  = fuzzer_dir + "/bin/syz-db"
 fuzzer_cfgs_dir = "/data/fuzz_cfgs_dir/"
-distance_dir = "/data/distance"
+distance_dir = "/distance"
 
 
 def create_project(caseid):
