@@ -28,4 +28,6 @@ cp analyze_patch.py /patch_analyzer/
 
 ### Kcov.c补丁与build_env.py
 
+kernel.patch和build_env.py
+
 放到Docker-env/data/fuzz_cfgs_dir目录下即可
