@@ -25,7 +25,7 @@
 
 /* Number of 64-bit words written per one comparison: */
 #define KCOV_WORDS_PER_CMP 4
-
+#define DISTBLOCKSIZE 10
 /*
  * kcov descriptor (one per opened debugfs file).
  * State transitions of the descriptor:
@@ -117,7 +117,6 @@ EXPORT_SYMBOL(__sanitizer_cov_trace_pc);
 #define ENABLE_SIGNAL	(0x3UL << 56)
 #define PRE_SIGNAL		(0x4UL << 56)
 #define POST_SIGNAL		(0x5UL << 56)
-#define DISTBLOCKSIZE 10
 
 void notrace __sanitizer_cov_trace_int8(unsigned long idx, unsigned long data)
 {

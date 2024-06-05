@@ -398,6 +398,7 @@ void replace_char(char * filename)
 }
 void load_distance()
 {
+  //gcc_log("=========load distance message=========\n");
   //加载distance信息
   char *dist_dir = getenv("DIST_DIR");
   if(dist_dir)
@@ -772,6 +773,7 @@ sancov_pass (function *fun)
           gimple *gcall_dist = gimple_build_call(fndecl_dist, 1, dist_tree);
           gimple_set_location (gcall_dist, gimple_location (stmt));
           gsi_insert_before (&gsi, gcall_dist, GSI_SAME_STMT);
+          gcc_log("Insert distance %s% s %d %d\n",filename,funcname,blockIdx,func->dis[blockIdx]);
           blockIdx++;
         }
       }
@@ -844,6 +846,7 @@ sancov_pass (function *fun)
             // break;
             
           }
+          //prop pre post
           case PROP_INST: {
             unsigned res = (unsigned)cb.data;
             
@@ -895,6 +898,7 @@ sancov_pass (function *fun)
         gimple *gcall_enable = gimple_build_call(fndecl_enable, 2, id_tree, mask_tree);
         gimple_set_location (gcall_enable, gimple_location (stmt));
         gsi_insert_before (&gsi, gcall_enable, GSI_SAME_STMT);
+        break;
         
       //  int lineno = gimple_lineno(stmt_);
       //   const char *filename = gimple_filename(stmt_);
@@ -911,20 +915,20 @@ sancov_pass (function *fun)
       }
     }
 
-    if (insert_cond_inst){
-      int lineno = gimple_lineno(stmt);
-      memset(cwd, 0, sizeof(cwd));
-      getcwd(cwd, 256);
-      const char *filename = gimple_filename(stmt);
-      FILE *fp = fopen(output_file, "a");
-      if (fp == NULL) {
-        fprintf(stderr, "Cannot open %s\n", output_file);
-        assert(false);
-      }
+    // if (insert_cond_inst){
+    //   int lineno = gimple_lineno(stmt);
+    //   memset(cwd, 0, sizeof(cwd));
+    //   getcwd(cwd, 256);
+    //   const char *filename = gimple_filename(stmt);
+    //   FILE *fp = fopen(output_file, "a");
+    //   if (fp == NULL) {
+    //     fprintf(stderr, "Cannot open %s\n", output_file);
+    //     assert(false);
+    //   }
 
-      fprintf(fp, "COND_INST:%s/%s:%s:%d\n", cwd, filename, funcname, lineno);
-      fclose(fp);
-    }
+    //   fprintf(fp, "COND_INST:%s/%s:%s:%d\n", cwd, filename, funcname, lineno);
+    //   fclose(fp);
+    // }
     
       fndecl = obj_fndecl;
       gimple *gcall = gimple_build_call (fndecl, 0);

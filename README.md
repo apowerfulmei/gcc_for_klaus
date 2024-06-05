@@ -31,3 +31,22 @@ cp analyze_patch.py /patch_analyzer/
 kernel.patch和build_env.py
 
 放到Docker-env/data/fuzz_cfgs_dir目录下即可
+
+
+
+### 命令汇总
+
+将gcc-bin与本项目解压到Docker-env/data目录下，在docker内运行命令
+
+```
+
+cd /data
+cp gcc_for_klaus/fuzz_cfgs_dir/* fuzz_cfgs_dir/
+cp gcc_for_klaus/patch_analyzer/analyzer /patch_analyzer/build/lib/
+cp gcc_for_klaus/patch_analyzer/analyze_patch.py /patch_analyzer/
+rm -rf /gcc-bin
+cp -r ./gcc-bin /
+
+
+```
+
