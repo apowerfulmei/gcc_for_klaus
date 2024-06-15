@@ -754,7 +754,7 @@ sancov_pass (function *fun)
       FOR_EACH_BB_FN (bb,fun)
       {
         unsigned int distance=-1;
-        if(func!=NULL || func->maxIdx>=blockIdx)
+        if(func!=NULL && func->maxIdx>=blockIdx)
           distance = func->dis[blockIdx];
 
         gimple_stmt_iterator gsi = gsi_start_nondebug_after_labels_bb (bb);
