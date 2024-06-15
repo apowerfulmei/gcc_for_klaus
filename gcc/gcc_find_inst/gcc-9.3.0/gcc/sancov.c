@@ -114,7 +114,7 @@ struct func_list{
   struct func_list *next;
   char * funcname;
   int maxIdx;
-  int dis[10000];
+  unsigned int dis[10000];
 };
 
 struct cond *cond_list = NULL;
@@ -415,7 +415,7 @@ void load_distance()
     char funcname[MAX_FILE_NAME] = {};
     char pathname[800] = {};
     int blockIdx;
-    int distance;
+    unsigned int distance;
     int oldIdx;
     while ((entry = readdir(dp)) != NULL) {
         //获取filename
@@ -448,7 +448,7 @@ void load_distance()
         while (1)
         {
           oldIdx=blockIdx+1;
-          fscanf(fp, "%s %d %d\n", funcname, &blockIdx, &distance);
+          fscanf(fp, "%s %d %u\n", funcname, &blockIdx, &distance);
           if (strlen(funcname) == 0)
             break;
           //查看func是否已保存
@@ -551,7 +551,7 @@ void init_structs()
 
       gcc_log("adding new set %s %d %s\n", filename, line, func);
       struct prop_list *p = lookup_prop(filename, line);
-
+      //id就是set的编号
       if (!p) {
         p = (struct prop_list *)xmalloc(sizeof(*p));
         p->funcname = xstrdup(func);
@@ -742,40 +742,33 @@ sancov_pass (function *fun)
       tree fndecl;
      
       //插入distance相关逻辑
+      //distance不存在时，插入距离-1
       struct distance_list *dist=lookup_file(filename);
-      if(dist!=NULL)
+      struct func_list *func;
+      if(dist!=NULL){
+        func=lookup_distance(dist->funcs,funcname);
+      }else{
+        func=NULL;
+      }
+      int blockIdx=0;
+      FOR_EACH_BB_FN (bb,fun)
       {
-        struct func_list *func=lookup_distance(dist->funcs,funcname);
-        int blockIdx=0;
-        FOR_EACH_BB_FN (bb,fun)
-        {
-          
-          if(func==NULL || func->maxIdx<blockIdx)
-            break;
-          //如果BB距离不存在，跳过
-          if(func->dis[blockIdx]==-1)
-            continue;
-          gimple_stmt_iterator gsi = gsi_start_nondebug_after_labels_bb (bb);
-          if (gsi_end_p (gsi))
-            continue;
-          gimple *stmt = gsi_stmt (gsi);
-          // FILE *fp = fopen(output_file, "a");
-          // if (fp == NULL) {
-          //   fprintf(stderr, "Cannot open %s\n", output_file);
-          //   assert(false);
-          // }
-          // fprintf(fp, "DISTANCE:%s/%s:%d:%d\n", filename, funcname, blockIdx,func->dis[blockIdx]);
-          // fclose(fp);
-          //声明
-          tree fndecl_dist = builtin_decl_implicit(BUILT_IN_SANITIZER_DIST_TRACE);
-          tree dist_tree = build_int_cstu(unsigned_type_node, func->dis[blockIdx]);
-          //创建调用，声明，变量数量，变量值
-          gimple *gcall_dist = gimple_build_call(fndecl_dist, 1, dist_tree);
-          gimple_set_location (gcall_dist, gimple_location (stmt));
-          gsi_insert_before (&gsi, gcall_dist, GSI_SAME_STMT);
-          gcc_log("Insert distance %s% s %d %d\n",filename,funcname,blockIdx,func->dis[blockIdx]);
-          blockIdx++;
-        }
+        unsigned int distance=-1;
+        if(func!=NULL || func->maxIdx>=blockIdx)
+          distance = func->dis[blockIdx];
+
+        gimple_stmt_iterator gsi = gsi_start_nondebug_after_labels_bb (bb);
+        if (gsi_end_p (gsi))
+          continue;
+        gimple *stmt = gsi_stmt (gsi);
+        tree fndecl_dist = builtin_decl_implicit(BUILT_IN_SANITIZER_DIST_TRACE);
+        tree dist_tree = build_int_cstu(unsigned_type_node, distance);
+        //创建调用，声明，变量数量，变量值
+        gimple *gcall_dist = gimple_build_call(fndecl_dist, 1, dist_tree);
+        gimple_set_location (gcall_dist, gimple_location (stmt));
+        gsi_insert_before (&gsi, gcall_dist, GSI_SAME_STMT);
+        gcc_log("Insert distance %s% s %d %d\n",filename,funcname,blockIdx,distance);
+        blockIdx++;
       }
 
 
