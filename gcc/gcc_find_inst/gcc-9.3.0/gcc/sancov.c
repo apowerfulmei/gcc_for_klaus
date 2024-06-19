@@ -114,6 +114,7 @@ struct func_list{
   struct func_list *next;
   char * funcname;
   int maxIdx;
+  int lastid;
   unsigned int dis[10000];
 };
 
@@ -416,7 +417,6 @@ void load_distance()
     char pathname[800] = {};
     int blockIdx;
     unsigned int distance;
-    int oldIdx;
     while ((entry = readdir(dp)) != NULL) {
         //获取filename
         strcpy(filename,entry->d_name);
@@ -447,7 +447,7 @@ void load_distance()
         }
         while (1)
         {
-          oldIdx=blockIdx+1;
+
           fscanf(fp, "%s %d %u\n", funcname, &blockIdx, &distance);
           if (strlen(funcname) == 0)
             break;
@@ -457,20 +457,33 @@ void load_distance()
             //如果函数信息未保存
             struct func_list *f=(struct func_list *)xmalloc(sizeof(*f));
             f->funcname = xstrdup(funcname);
-            //将空白区间的距离变为-1
-            while(oldIdx<blockIdx)
-            {
-              f->dis[blockIdx]=-1;
-              oldIdx++;
-            }
+           
+
             f->dis[blockIdx]=distance;
+            //lastid记录上一个有记录函数bb的id
+            f->lastid=0;
             f->maxIdx=blockIdx;
+            //将空白区间的距离变为-1
+            while(f->lastid<blockIdx)
+            {
+              
+              f->dis[f->lastid]=-1; 
+              f->lastid++;
+            }
+            f->lastid++;
             f->next=dist->funcs;
             dist->funcs=f;
           
 
           }else{
             func->maxIdx=blockIdx;
+            while(func->lastid<blockIdx)
+            {
+              
+              func->dis[func->lastid]=-1; 
+              func->lastid++;
+            }
+            func->lastid++;
             func->dis[blockIdx]=distance;
           }
 
